@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>BLE Robot Controller</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #fff;
+            touch-action: none;
+            user-select: none;
+        }
+        
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #4CAF50;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 10px;
+            margin: 20px 0;
+            border-radius: 5px;
+            background-color: #333;
+        }
+        
+        .status.connected {
+            background-color: #4CAF50;
+        }
+        
+        .control-panel {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin: 30px 0;
+        }
+        
+        .control-btn {
+            padding: 30px;
+            font-size: 24px;
+            border: none;
+            border-radius: 10px;
+            background-color: #2196F3;
+            color: white;
+            cursor: pointer;
+            transition: all 0.2s;
+            touch-action: none;
+        }
+        
+        .control-btn:active {
+            background-color: #4CAF50;
+            transform: scale(0.95);
+        }
+        
+        .control-btn:disabled {
+            background-color: #666;
+            cursor: not-allowed;
+        }
+        
+        .control-btn.stop {
+            background-color: #f44336;
+        }
+        
+        .speed-control {
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .speed-slider {
+            width: 80%;
+            margin: 10px 0;
+        }
+        
+        .connect-btn {
+            display: block;
+            width: 200px;
+            margin: 20px auto;
+            padding: 15px;
+            font-size: 18px;
+            border: none;
+            border-radius: 5px;
+            background-color: #4CAF50;
+            color: white;
+            cursor: pointer;
+        }
+        
+        .connect-btn:hover {
+            background-color: #45a049;
+        }
+        
+        .keyboard-info {
+            text-align: center;
+            margin-top: 30px;
+            padding: 20px;
+            background-color: #333;
+            border-radius: 10px;
+        }
+        
+        .keyboard-info h3 {
+            color: #4CAF50;
+        }
+        
+        .key-list {
+            display: inline-block;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 BLE Robot Controller</h1>
+        
+        <div id="status" class="status">
+            Disconnected
+        </div>
+        
+        <button id="connectBtn" class="connect-btn" onclick="connectToRobot()">
+            Connect to Robot
+        </button>
+        
+        <div class="control-panel">
+            <button class="control-btn" onmousedown="moveForwardLeft()" onmouseup="stop()" 
+                    ontouchstart="moveForwardLeft()" ontouchend="stop()" disabled>↖️</button>
+            <button class="control-btn" onmousedown="moveForward()" onmouseup="stop()" 
+                    ontouchstart="moveForward()" ontouchend="stop()" disabled>⬆️</button>
+            <button class="control-btn" onmousedown="moveForwardRight()" onmouseup="stop()" 
+                    ontouchstart="moveForwardRight()" ontouchend="stop()" disabled>↗️</button>
+            
+            <button class="control-btn" onmousedown="turnLeft()" onmouseup="stop()" 
+                    ontouchstart="turnLeft()" ontouchend="stop()" disabled>⬅️</button>
+            <button class="control-btn stop" onmousedown="stop()" 
+                    ontouchstart="stop()" disabled>⏹️</button>
+            <button class="control-btn" onmousedown="turnRight()" onmouseup="stop()" 
+                    ontouchstart="turnRight()" ontouchend="stop()" disabled>➡️</button>
+            
+            <button class="control-btn" disabled></button>
+            <button class="control-btn" onmousedown="moveBackward()" onmouseup="stop()" 
+                    ontouchstart="moveBackward()" ontouchend="stop()" disabled>⬇️</button>
+            <button class="control-btn" disabled></button>
+        </div>
+        
+        <div class="speed-control">
+            <h3>Speed Control</h3>
+            <input type="range" id="speedSlider" class="speed-slider" 
+                   min="50" max="250" value="150" step="10" 
+                   oninput="updateSpeed(this.value)">
+            <div>Speed: <span id="speedValue">150</span></div>
+        </div>
+        
+        <div class="keyboard-info">
+            <h3>Keyboard Controls (Desktop)</h3>
+            <div class="key-list">
+                <p>W - Forward | S - Backward</p>
+                <p>A - Turn Left | D - Turn Right</p>
+                <p>Q - Forward Left | E - Forward Right</p>
+                <p>Space - Stop</p>
+                <p>+ / - Speed Up/Down</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // BLE UUIDs
+        const SERVICE_UUID = '19b10000-e8f2-537e-4f6c-d104768a1214';
+        const CHARACTERISTIC_UUID = '19b10001-e8f2-537e-4f6c-d104768a1214';
+        
+        let device = null;
+        let characteristic = null;
+        let isConnected = false;
+        
+        // Motor values
+        let leftForward = 0;
+        let leftBackward = 0;
+        let rightForward = 0;
+        let rightBackward = 0;
+        
+        // Speed settings
+        let baseSpeed = 150;
+        let turnSpeed = 100;
+        
+        // Connect to robot
+        async function connectToRobot() {
+            try {
+                // Request device
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'RobotController' }],
+                    optionalServices: [SERVICE_UUID]
+                });
+                
+                // Connect to GATT server
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+                
+                // Update UI
+                isConnected = true;
+                updateStatus('Connected', true);
+                enableControls(true);
+                
+                // Handle disconnection
+                device.addEventListener('gattserverdisconnected', onDisconnected);
+                
+            } catch (error) {
+                console.error('Connection failed:', error);
+                updateStatus('Connection failed', false);
+            }
+        }
+        
+        // Handle disconnection
+        function onDisconnected() {
+            isConnected = false;
+            updateStatus('Disconnected', false);
+            enableControls(false);
+            device = null;
+            characteristic = null;
+        }
+        
+        // Send command to robot
+        async function sendCommand() {
+            if (!isConnected || !characteristic) return;
+            
+            try {
+                const data = new Uint8Array([
+                    leftForward,
+                    leftBackward,
+                    rightForward,
+                    rightBackward
+                ]);
+                await characteristic.writeValue(data);
+            } catch (error) {
+                console.error('Failed to send command:', error);
+            }
+        }
+        
+        // Update status display
+        function updateStatus(text, connected) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = text;
+            statusEl.className = connected ? 'status connected' : 'status';
+        }
+        
+        // Enable/disable controls
+        function enableControls(enabled) {
+            const buttons = document.querySelectorAll('.control-btn');
+            buttons.forEach(btn => btn.disabled = !enabled);
+            document.getElementById('connectBtn').style.display = enabled ? 'none' : 'block';
+        }
+        
+        // Movement functions
+        function stop() {
+            leftForward = 0;
+            leftBackward = 0;
+            rightForward = 0;
+            rightBackward = 0;
+            sendCommand();
+        }
+        
+        function moveForward() {
+            stop();
+            leftForward = baseSpeed;
+            rightForward = baseSpeed;
+            sendCommand();
+        }
+        
+        function moveBackward() {
+            stop();
+            leftBackward = baseSpeed;
+            rightBackward = baseSpeed;
+            sendCommand();
+        }
+        
+        function turnLeft() {
+            stop();
+            leftBackward = turnSpeed;
+            rightForward = turnSpeed;
+            sendCommand();
+        }
+        
+        function turnRight() {
+            stop();
+            leftForward = turnSpeed;
+            rightBackward = turnSpeed;
+            sendCommand();
+        }
+        
+        function moveForwardLeft() {
+            stop();
+            leftForward = baseSpeed - 50;
+            rightForward = baseSpeed;
+            sendCommand();
+        }
+        
+        function moveForwardRight() {
+            stop();
+            leftForward = baseSpeed;
+            rightForward = baseSpeed - 50;
+            sendCommand();
+        }
+        
+        // Update speed
+        function updateSpeed(value) {
+            baseSpeed = parseInt(value);
+            document.getElementById('speedValue').textContent = value;
+        }
+        
+        // Keyboard controls
+        document.addEventListener('keydown', (event) => {
+            if (!isConnected) return;
+            
+            switch(event.key.toLowerCase()) {
+                case 'w':
+                    moveForward();
+                    break;
+                case 's':
+                    moveBackward();
+                    break;
+                case 'a':
+                    turnLeft();
+                    break;
+                case 'd':
+                    turnRight();
+                    break;
+                case 'q':
+                    moveForwardLeft();
+                    break;
+                case 'e':
+                    moveForwardRight();
+                    break;
+                case ' ':
+                    stop();
+                    break;
+                case '+':
+                case '=':
+                    if (baseSpeed < 250) {
+                        baseSpeed += 10;
+                        document.getElementById('speedSlider').value = baseSpeed;
+                        document.getElementById('speedValue').textContent = baseSpeed;
+                    }
+                    break;
+                case '-':
+                    if (baseSpeed > 50) {
+                        baseSpeed -= 10;
+                        document.getElementById('speedSlider').value = baseSpeed;
+                        document.getElementById('speedValue').textContent = baseSpeed;
+                    }
+                    break;
+            }
+        });
+        
+        document.addEventListener('keyup', (event) => {
+            if (!isConnected) return;
+            
+            const movementKeys = ['w', 's', 'a', 'd', 'q', 'e'];
+            if (movementKeys.includes(event.key.toLowerCase())) {
+                stop();
+            }
+        });
+        
+        // Prevent context menu on long press
+        document.addEventListener('contextmenu', (e) => e.preventDefault());
+    </script>
+</body>
+</html>
