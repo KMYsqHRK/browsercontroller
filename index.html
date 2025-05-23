@@ -80,10 +80,26 @@
             margin: 10px 0;
         }
         
-        .connect-btn {
-            display: block;
+        .connect-panel {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 20px 0;
+        }
+        
+        .robot-selector {
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #333;
+            border: 1px solid #4CAF50;
+            color: white;
+            border-radius: 5px;
             width: 200px;
-            margin: 20px auto;
+            font-size: 16px;
+        }
+        
+        .connect-btn {
+            width: 200px;
             padding: 15px;
             font-size: 18px;
             border: none;
@@ -113,19 +129,35 @@
             display: inline-block;
             text-align: left;
         }
+        
+        .connected-robot {
+            text-align: center;
+            margin: 10px 0;
+            font-weight: bold;
+            color: #4CAF50;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🤖 BLE Robot Controller</h1>
+        <h1>🤖 BLE Dual Robot Controller</h1>
         
         <div id="status" class="status">
             Disconnected
         </div>
         
-        <button id="connectBtn" class="connect-btn" onclick="connectToRobot()">
-            Connect to Robot
-        </button>
+        <div class="connect-panel">
+            <select id="robotSelector" class="robot-selector">
+                <option value="RobotOne">Robot One</option>
+                <option value="RobotTwo">Robot Two</option>
+            </select>
+            
+            <button id="connectBtn" class="connect-btn" onclick="connectToRobot()">
+                Connect to Robot
+            </button>
+        </div>
+        
+        <div id="connectedRobot" class="connected-robot" style="display: none;"></div>
         
         <div class="control-panel">
             <button class="control-btn" onmousedown="moveForwardLeft()" onmouseup="stop()" 
@@ -170,12 +202,20 @@
 
     <script>
         // BLE UUIDs
-        const SERVICE_UUID = '19b10000-e8f2-537e-4f6c-d104768a1214';
-        const CHARACTERISTIC_UUID = '19b10001-e8f2-537e-4f6c-d104768a1214';
+        const SERVICE_UUIDS = {
+            'RobotOne': '19b10000-e8f2-537e-4f6c-d104768a1214',
+            'RobotTwo': '19b10000-e8f2-537e-4f6c-d104768a1215'
+        };
+        
+        const CHARACTERISTIC_UUIDS = {
+            'RobotOne': '19b10001-e8f2-537e-4f6c-d104768a1214',
+            'RobotTwo': '19b10001-e8f2-537e-4f6c-d104768a1215'
+        };
         
         let device = null;
         let characteristic = null;
         let isConnected = false;
+        let currentRobot = null;
         
         // Motor values
         let leftForward = 0;
@@ -190,28 +230,38 @@
         // Connect to robot
         async function connectToRobot() {
             try {
+                // Get selected robot
+                const robotSelector = document.getElementById('robotSelector');
+                const selectedRobot = robotSelector.value;
+                
                 // Request device
                 device = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'RobotController' }],
-                    optionalServices: [SERVICE_UUID]
+                    filters: [{ name: selectedRobot }],
+                    optionalServices: [SERVICE_UUIDS[selectedRobot]]
                 });
                 
                 // Connect to GATT server
                 const server = await device.gatt.connect();
-                const service = await server.getPrimaryService(SERVICE_UUID);
-                characteristic = await service.getCharacteristic(CHARACTERISTIC_UUID);
+                const service = await server.getPrimaryService(SERVICE_UUIDS[selectedRobot]);
+                characteristic = await service.getCharacteristic(CHARACTERISTIC_UUIDS[selectedRobot]);
                 
                 // Update UI
                 isConnected = true;
-                updateStatus('Connected', true);
+                currentRobot = selectedRobot;
+                updateStatus(`Connected to ${selectedRobot}`, true);
                 enableControls(true);
+                
+                // Show connected robot info
+                const connectedRobotElement = document.getElementById('connectedRobot');
+                connectedRobotElement.textContent = `Connected to: ${selectedRobot}`;
+                connectedRobotElement.style.display = 'block';
                 
                 // Handle disconnection
                 device.addEventListener('gattserverdisconnected', onDisconnected);
                 
             } catch (error) {
                 console.error('Connection failed:', error);
-                updateStatus('Connection failed', false);
+                updateStatus('Connection failed: ' + error.message, false);
             }
         }
         
@@ -220,8 +270,13 @@
             isConnected = false;
             updateStatus('Disconnected', false);
             enableControls(false);
+            
+            // Hide connected robot info
+            document.getElementById('connectedRobot').style.display = 'none';
+            
             device = null;
             characteristic = null;
+            currentRobot = null;
         }
         
         // Send command to robot
@@ -238,6 +293,7 @@
                 await characteristic.writeValue(data);
             } catch (error) {
                 console.error('Failed to send command:', error);
+                updateStatus('Command error: ' + error.message, false);
             }
         }
         
@@ -252,7 +308,9 @@
         function enableControls(enabled) {
             const buttons = document.querySelectorAll('.control-btn');
             buttons.forEach(btn => btn.disabled = !enabled);
-            document.getElementById('connectBtn').style.display = enabled ? 'none' : 'block';
+            
+            // Show/hide connect panel
+            document.querySelector('.connect-panel').style.display = enabled ? 'none' : 'flex';
         }
         
         // Movement functions
