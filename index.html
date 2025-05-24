@@ -52,6 +52,34 @@
             background: rgba(255, 133, 125, 0.3);
         }
         
+        .robot-selection {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+        
+        .robot-btn {
+            background: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 15px;
+            cursor: pointer;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+        
+        .robot-btn:hover {
+            background: #295a6c;
+        }
+        
+        .robot-btn.selected {
+            background: #832e2e;
+        }
+        
         button {
             background: #b4dbd4;
             border: none;
@@ -144,6 +172,13 @@
     <div class="container">
         <h1>小型ロボットコントローラー</h1>
         
+        <div class="robot-selection">
+            <div style="margin-bottom: 10px; font-weight: bold;">ロボット選択:</div>
+            <button class="robot-btn" id="robot1Btn" onclick="selectRobot(1)">ロボット1</button>
+            <button class="robot-btn" id="robot2Btn" onclick="selectRobot(2)">ロボット2</button>
+            <div id="selectedRobot" style="margin-top: 10px; font-weight: bold;">選択中: ロボット1</div>
+        </div>
+        
         <div id="status" class="status disconnected">
             未接続 - Bluetoothデバイスに接続してください
         </div>
@@ -203,16 +238,47 @@
     </div>
 
     <script>
-        // BLE UUIDs (ArduinoコードのUUIDと一致) - 小文字で記述
-        const SERVICE_UUID = '19b10000-e8f2-537e-4f6c-d104768a1214';
-        const CONTROL_CHARACTERISTIC_UUID = '19b10001-e8f2-537e-4f6c-d104768a1214';
+        // ロボット設定
+        const ROBOT_CONFIGS = {
+            1: {
+                name: 'Robo1',
+                serviceUUID: '19b10000-e8f2-537e-4f6c-d104768a1214',
+                characteristicUUID: '19b10001-e8f2-537e-4f6c-d104768a1214'
+            },
+            2: {
+                name: 'Robo2',
+                serviceUUID: '19b10002-e8f2-537e-4f6c-d104768a1214',
+                characteristicUUID: '19b10003-e8f2-537e-4f6c-d104768a1214'
+            }
+        };
         
+        let selectedRobotId = 1;
         let bluetoothDevice;
         let robotService;
         let controlCharacteristic;
         let isConnected = false;
         let currentSpeed = 128;
         let isMoving = false;
+        
+        // ロボット選択
+        function selectRobot(robotId) {
+            if (isConnected) {
+                addLog('接続中は変更できません。先に切断してください。');
+                return;
+            }
+            
+            selectedRobotId = robotId;
+            
+            // ボタンの表示を更新
+            document.getElementById('robot1Btn').classList.remove('selected');
+            document.getElementById('robot2Btn').classList.remove('selected');
+            document.getElementById(`robot${robotId}Btn`).classList.add('selected');
+            
+            // 選択表示を更新
+            document.getElementById('selectedRobot').textContent = `選択中: ロボット${robotId}`;
+            
+            addLog(`ロボット${robotId}を選択しました`);
+        }
         
         // ログ表示用
         function addLog(message) {
@@ -235,12 +301,13 @@
         // ロボットに接続
         async function connectToRobot() {
             try {
-                addLog('Bluetoothデバイスを検索中...');
+                const config = ROBOT_CONFIGS[selectedRobotId];
+                addLog(`${config.name}を検索中...`);
                 
                 // Web Bluetooth APIでデバイスを要求
                 bluetoothDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'Robo1' }],
-                    optionalServices: [SERVICE_UUID]
+                    filters: [{ name: config.name }],
+                    optionalServices: [config.serviceUUID]
                 });
                 
                 addLog(`デバイス発見: ${bluetoothDevice.name}`);
@@ -250,19 +317,19 @@
                 addLog('GATTサーバーに接続しました');
                 
                 // サービスを取得
-                robotService = await server.getPrimaryService(SERVICE_UUID);
+                robotService = await server.getPrimaryService(config.serviceUUID);
                 addLog('ロボットサービスを取得しました');
                 
                 // 特性を取得
-                controlCharacteristic = await robotService.getCharacteristic(CONTROL_CHARACTERISTIC_UUID);
+                controlCharacteristic = await robotService.getCharacteristic(config.characteristicUUID);
                 addLog('コントロール特性を取得しました');
                 
                 // 切断イベントリスナー
                 bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
                 
                 isConnected = true;
-                updateStatus('ロボットに接続されました', true);
-                addLog('ロボットへの接続が完了しました');
+                updateStatus(`${config.name}に接続されました`, true);
+                addLog(`${config.name}への接続が完了しました`);
                 
                 // 初期状態で停止コマンドを送信
                 await sendMotorCommand(0, 0, 0, 0);
@@ -283,8 +350,9 @@
         // 切断イベント
         function onDisconnected() {
             isConnected = false;
-            updateStatus('ロボットから切断されました', false);
-            addLog('ロボットから切断されました');
+            const config = ROBOT_CONFIGS[selectedRobotId];
+            updateStatus(`${config.name}から切断されました`, false);
+            addLog(`${config.name}から切断されました`);
         }
         
         // モーターコマンド送信
@@ -405,6 +473,9 @@
         window.onload = function() {
             addLog('ロボットコントローラーが起動しました');
             addLog('Web Bluetooth API対応ブラウザが必要です');
+            
+            // 初期選択
+            selectRobot(1);
             
             // Web Bluetooth APIサポートチェック
             if (!navigator.bluetooth) {
