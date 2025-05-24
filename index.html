@@ -242,7 +242,7 @@
                 // Web Bluetooth APIでデバイスを要求
                 bluetoothDevice = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'Robo1' }],
-                    services: [SERVICE_UUID]
+                    optionalServices: [SERVICE_UUID]
                 });
                 
                 addLog(`デバイス発見: ${bluetoothDevice.name}`);
